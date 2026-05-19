@@ -4,6 +4,7 @@ Click CLI entry point for ffmpeg-tools.
 
 import json
 import sys
+from datetime import datetime
 from pathlib import Path
 
 import click
@@ -27,15 +28,15 @@ def main() -> None:
 
 @main.command()
 @click.argument("input_file", type=click.Path(exists=True, dir_okay=False, path_type=Path))
-@click.argument("output_file", type=click.Path(dir_okay=False, path_type=Path))
 @click.option(
     "--resolution", "-r",
     default=None,
     metavar="RES",
     help=(
         "Output resolution. "
-        f"Presets: {', '.join(RESOLUTION_PRESETS)}. "
-        "Or WIDTHxHEIGHT (e.g. 1920x1080)."
+        f"Presets: {', '.join(RESOLUTION_PRESETS)} — the number is the short side, "
+        "so portrait and landscape videos are scaled correctly without cropping or stretching. "
+        "Or WIDTHxHEIGHT (e.g. 1920x1080) for explicit dimensions."
     ),
 )
 @click.option(
@@ -86,12 +87,6 @@ def main() -> None:
     help="Strip the audio track from the output.",
 )
 @click.option(
-    "--overwrite", "-y",
-    is_flag=True,
-    default=False,
-    help="Overwrite output file without prompting.",
-)
-@click.option(
     "--dry-run",
     is_flag=True,
     default=False,
@@ -99,7 +94,6 @@ def main() -> None:
 )
 def convert(
     input_file: Path,
-    output_file: Path,
     resolution: str | None,
     framerate: float | None,
     quality: str | None,
@@ -108,28 +102,42 @@ def convert(
     audio_codec: str | None,
     audio_bitrate: str | None,
     no_audio: bool,
-    overwrite: bool,
     dry_run: bool,
 ) -> None:
     """
     Convert a video file, optionally changing format, resolution, framerate, or quality.
 
+    Output is written next to the input file, named _output_YYYYMMDD_HHMMSS with the
+    same extension as the input.
+
     \b
     Examples:
-      fftools convert input.mkv output.mp4
-      fftools convert input.mp4 output.mp4 --resolution 1080p
-      fftools convert input.mp4 output.mp4 --framerate 30
-      fftools convert input.mp4 output.mp4 --quality high
-      fftools convert input.mkv output.mp4 --resolution 720p --quality medium --framerate 30
-      fftools convert input.mp4 output.mp4 --video-codec h265 --quality high
-      fftools convert input.mp4 muted.mp4 --no-audio
-      fftools convert input.mkv output.mp4 --dry-run
+      fftools convert input.mkv
+      fftools convert input.mp4 --resolution 1080p
+      fftools convert input.mp4 --framerate 30
+      fftools convert input.mp4 --quality high
+      fftools convert input.mkv --resolution 720p --quality medium --framerate 30
+      fftools convert input.mp4 --video-codec h265 --quality high
+      fftools convert input.mp4 --no-audio
+      fftools convert input.mkv --dry-run
     """
-    if not dry_run and output_file.exists() and not overwrite:
-        click.confirm(
-            f"Output file '{output_file}' already exists. Overwrite?",
-            abort=True,
-        )
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    output_file = input_file.parent / f"{input_file.stem}_output_{timestamp}{input_file.suffix}"
+
+    input_width = None
+    input_height = None
+    if resolution:
+        try:
+            probe_data = get_video_info(input_file)
+            video_stream = next(
+                (stream for stream in probe_data.get("streams", []) if stream.get("codec_type") == "video"),
+                None,
+            )
+            if video_stream:
+                input_width = video_stream.get("width")
+                input_height = video_stream.get("height")
+        except RuntimeError:
+            pass
 
     try:
         command = build_convert_command(
@@ -138,18 +146,20 @@ def convert(
             video_codec=video_codec,
             audio_codec=audio_codec,
             resolution=resolution,
+            input_width=input_width,
+            input_height=input_height,
             framerate=framerate,
             quality=quality,
             crf=crf,
             audio_bitrate=audio_bitrate,
             no_audio=no_audio,
-            overwrite=overwrite,
         )
 
         run_ffmpeg(command, dry_run=dry_run)
 
         if not dry_run:
-            click.echo(f"Done: {output_file}")
+            output_size = _format_file_size(output_file.stat().st_size)
+            click.echo(f"Done: {output_file} ({output_size})")
 
     except (ValueError, RuntimeError) as error:
         click.echo(f"Error: {error}", err=True)

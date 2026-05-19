@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(Get-Command ffmpeg, uv, git -ErrorAction SilentlyContinue)",
+      "PowerShell(Get-Command ffmpeg -ErrorAction SilentlyContinue)",
+      "PowerShell(Get-Command uv -ErrorAction SilentlyContinue)",
+      "PowerShell(Get-Command git -ErrorAction SilentlyContinue)",
+      "PowerShell(New-Item -ItemType Directory -Path \"C:\\\\Users\\\\arthu\\\\code\\\\ffmpeg_tools\\\\src\\\\ffmpeg_tools\" -Force)"
+    ]
+  }
+}

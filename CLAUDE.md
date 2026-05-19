@@ -28,7 +28,9 @@ fftools --help
 - `build_convert_command()` returns a plain `list[str]`; `run_ffmpeg()` executes it. Keeping them separate makes `--dry-run` trivial and the builder unit-testable without subprocess.
 - Codec names in `CODEC_MAP` / `AUDIO_CODEC_MAP` are user-facing aliases; ffmpeg library names (e.g. `libx264`) are only used internally.
 - `QUALITY_CRF` maps preset names to per-codec CRF values. `--crf` always overrides `--quality`.
-- Resolution is passed as a `-vf scale=` filter so aspect ratio is preserved by default.
+- Resolution presets (`RESOLUTION_PRESETS`) map names to a short-side pixel count (e.g. `"1080p": 1080`). The CLI probes the input dimensions before building the command, and `parse_resolution` returns `TARGET:-2` for portrait or `-2:TARGET` for landscape so ffmpeg preserves aspect ratio without cropping or stretching. The `-2` keeps the auto-calculated dimension divisible by 2, which h264/h265 require.
+- Output path is always auto-generated: same directory as the input, filename `<stem>_output_YYYYMMDD_HHMMSS` + same extension. No `output_file` argument; no `--overwrite` flag.
+- After conversion, the CLI prints the output path and its file size.
 
 ## Adding a new feature
 

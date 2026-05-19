@@ -25,13 +25,14 @@ AUDIO_CODEC_MAP: dict[str, str] = {
     "copy": "copy",
 }
 
-RESOLUTION_PRESETS: dict[str, str] = {
-    "480p": "854:480",
-    "720p": "1280:720",
-    "1080p": "1920:1080",
-    "1440p": "2560:1440",
-    "4k": "3840:2160",
-    "2160p": "3840:2160",
+RESOLUTION_PRESETS: dict[str, int] = {
+    "480p": 480,
+    "720p": 720,
+    "1080p": 1080,
+    "1440p": 1440,
+    "2k": 1440,
+    "4k": 2160,
+    "2160p": 2160,
 }
 
 # CRF values per codec; lower value = better quality, larger file
@@ -76,17 +77,35 @@ def _require_binary(binary_name: str) -> str:
     return binary_path
 
 
-def parse_resolution(resolution: str) -> str:
+def parse_resolution(
+    resolution: str,
+    input_width: int | None = None,
+    input_height: int | None = None,
+) -> str:
     """
     Parse a resolution string into an ffmpeg scale filter value.
 
+    For named presets the target number is the short side. Portrait vs. landscape
+    is determined from the input dimensions so aspect ratio is always preserved.
+    ffmpeg fills in the other dimension (-2 keeps it divisible by 2).
+
     :param resolution: Preset name (e.g. '1080p') or WIDTHxHEIGHT (e.g. '1920x1080')
-    :returns: Scale filter value in 'WIDTH:HEIGHT' format (e.g. '1920:1080')
+    :param input_width: Coded width of the input video, used to detect orientation
+    :param input_height: Coded height of the input video, used to detect orientation
+    :returns: Scale filter value suitable for ``-vf scale=<value>``
     :raises ValueError: If the resolution string is not a recognised preset or valid WIDTHxHEIGHT
     """
     normalised = resolution.lower()
     if normalised in RESOLUTION_PRESETS:
-        return RESOLUTION_PRESETS[normalised]
+        target = RESOLUTION_PRESETS[normalised]
+        is_portrait = (
+            input_width is not None
+            and input_height is not None
+            and input_height > input_width
+        )
+        if is_portrait:
+            return f"{target}:-2"
+        return f"-2:{target}"
 
     if "x" in normalised:
         parts = normalised.split("x", 1)
@@ -152,6 +171,8 @@ def build_convert_command(
     video_codec: str | None = None,
     audio_codec: str | None = None,
     resolution: str | None = None,
+    input_width: int | None = None,
+    input_height: int | None = None,
     framerate: float | None = None,
     quality: str | None = None,
     crf: int | None = None,
@@ -167,6 +188,8 @@ def build_convert_command(
     :param video_codec: Video codec name (h264, h265, vp9, av1, copy)
     :param audio_codec: Audio codec name (aac, mp3, opus, vorbis, copy)
     :param resolution: Target resolution as preset or WIDTHxHEIGHT string
+    :param input_width: Coded width of the input video; used to detect portrait orientation
+    :param input_height: Coded height of the input video; used to detect portrait orientation
     :param framerate: Target frames per second
     :param quality: Quality preset name (low, medium, high, lossless)
     :param crf: Raw CRF value; takes precedence over quality preset
@@ -204,7 +227,7 @@ def build_convert_command(
             command += ["-crf", str(effective_crf)]
 
         if resolution:
-            scale_value = parse_resolution(resolution)
+            scale_value = parse_resolution(resolution, input_width, input_height)
             command += ["-vf", f"scale={scale_value}"]
 
         if framerate:
